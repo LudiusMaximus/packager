@@ -669,6 +669,11 @@ if [ -f "$pkgmeta_file" ]; then
 				changelog=$yaml_value
 				manual_changelog="true"
 				;;
+			ludius-changelog)
+				if [ "$yaml_value" = "yes" ]; then
+					ludius_changelog="true"
+				fi
+				;;
 			package-as)
 				package=$yaml_value
 				;;
@@ -1716,9 +1721,71 @@ if [ -z "$project" ]; then
 	project="$package"
 fi
 
+
+if [ -n "$ludius_changelog" ]; then
+
+	if [ -n "$manual_changelog" ]; then
+		echo "Warning! You cannot have a manual changelog and the ludius changelog!"
+		manual_changelog=
+	fi
+	changelog="CHANGELOG.md"
+	changelog_markup="markdown"
+
+	# Get branch of current version/tag.
+	currentbranch=$(git branch --contains $project_version | sed 's/^..//')
+
+	# If we have not tag, this is an alpha release.
+	if [ -z "$tag" ]; then
+
+		# Show only differences between latest tag and this alpha build.
+		latesttag=$(git tag --sort=-creatordate --merged $currentbranch | head -n 1)
+		if [ -n "$latesttag" ]; then
+			echo "Changes since last release:" >> "$pkgdir/$changelog"
+			echo "https://github.com/LudiusMaximus/PackagerTest/compare/$latesttag...$currentbranch" >> "$pkgdir/$changelog"
+		else
+			echo "There has never been a release of this."
+		fi
+
+	else
+
+		# Get all tags of this branch ordered from newest to oldest.
+		alltags=$(git tag --sort=-creatordate --merged $currentbranch)
+
+		lasttag=
+		for sometag in $alltags
+		do
+
+			# TODO: Only use tags matching our formating!
+
+			if [ -z "$lasttag" ]; then
+				echo "### $sometag ($(git log -1 --format=%ai $sometag)) ###" >> "$pkgdir/$changelog"
+				lasttag=$sometag
+			else
+
+				# Print the github diff link.
+				echo "(https://github.com/LudiusMaximus/PackagerTest/compare/$sometag...$lasttag)" >> "$pkgdir/$changelog"
+				# Print the annotation of the tag. If the tag has no annotation
+				# the message of the last commit is printed.
+				echo "$(git tag -l --format='%(contents)' $lasttag)" >> "$pkgdir/$changelog"
+				echo >> "$pkgdir/$changelog"
+
+				echo "### $sometag ($(git log -1 --format=%ai $sometag)) ###" >> "$pkgdir/$changelog"
+				lasttag=$sometag
+			fi
+		done
+
+		echo "$(git tag -l --format='%(contents)' $lasttag)" >> "$pkgdir/$changelog"
+	fi
+
+
+	echo
+	echo "$(<"$pkgdir/$changelog")"
+	echo
+
+
 # Create a changelog in the package directory if the source directory does
 # not contain a manual changelog.
-if [ -n "$manual_changelog" ] && [ -f "$topdir/$changelog" ]; then
+elif [ -n "$manual_changelog" ] && [ -f "$topdir/$changelog" ]; then
 	echo "Using manual changelog at $changelog"
 	echo
 	head -n7 "$topdir/$changelog"
@@ -1766,6 +1833,7 @@ if [ -n "$manual_changelog" ] && [ -f "$topdir/$changelog" ]; then
 				# -e 's/^[ \t]*//g' \
 		fi
 	fi
+
 else
 	if [ -n "$manual_changelog" ]; then
 		echo "Warning! Could not find a manual changelog at $topdir/$changelog"
@@ -2009,7 +2077,7 @@ if [ -z "$skip_zipfile" ]; then
 	fi
 
 	archive_version="$project_version"
-	archive_name="$archive_package_name-$project_version$classic_tag.zip"
+	archive_name="${archive_package_name}_$project_version$classic_tag.zip"
 	archive="$releasedir/$archive_name"
 
 	nolib_archive_version="$project_version-nolib"
