@@ -589,6 +589,7 @@ fi
 
 # Variables set via .pkgmeta.
 package=
+ludius_changelog=
 manual_changelog=
 changelog=
 changelog_markup="text"
@@ -1725,7 +1726,7 @@ fi
 if [ -n "$ludius_changelog" ]; then
 
 	if [ -n "$manual_changelog" ]; then
-		echo "Warning! You cannot have a manual changelog and the ludius changelog!"
+		echo "Warning! You cannot have a manual changelog and the Ludius changelog!"
 		manual_changelog=
 	fi
 	changelog="CHANGELOG.md"
