@@ -1742,7 +1742,7 @@ if [ -n "$ludius_changelog" ]; then
 		latesttag=$(git tag --sort=-creatordate --merged $currentbranch | head -n 1)
 		if [ -n "$latesttag" ]; then
 			echo "Changes since last release:" >> "$pkgdir/$changelog"
-			echo "https://github.com/LudiusMaximus/PackagerTest/compare/$latesttag...$currentbranch" >> "$pkgdir/$changelog"
+			echo "https://github.com/$project_github_slug/compare/$latesttag...$currentbranch" >> "$pkgdir/$changelog"
 		else
 			echo "There has never been a release of this."
 		fi
@@ -1764,7 +1764,7 @@ if [ -n "$ludius_changelog" ]; then
 			else
 
 				# Print the github diff link.
-				echo "(https://github.com/LudiusMaximus/PackagerTest/compare/$sometag...$lasttag)" >> "$pkgdir/$changelog"
+				echo "(https://github.com/$project_github_slug/compare/$sometag...$lasttag)" >> "$pkgdir/$changelog"
 				# Print the annotation of the tag. If the tag has no annotation
 				# the message of the last commit is printed.
 				echo "$(git tag -l --format='%(contents)' $lasttag)" >> "$pkgdir/$changelog"
