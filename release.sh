@@ -1767,7 +1767,10 @@ if [ -n "$ludius_changelog" ]; then
 				echo "(https://github.com/$project_github_slug/compare/$sometag...$lasttag)" >> "$pkgdir/$changelog"
 				# Print the annotation of the tag. If the tag has no annotation
 				# the message of the last commit is printed.
-				echo "$(git tag -l --format='%(contents)' $lasttag)" >> "$pkgdir/$changelog"
+				tagmessage=$(git tag -l --format='%(contents)' $lasttag)
+				if [ -n "$tagmessage" ]; then
+					echo "$tagmessage" >> "$pkgdir/$changelog"
+				fi
 				echo >> "$pkgdir/$changelog"
 
 				echo "### $sometag ($(git log -1 --format=%ai $sometag)) ###" >> "$pkgdir/$changelog"
