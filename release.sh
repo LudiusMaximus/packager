@@ -1730,7 +1730,7 @@ if [ -n "$ludius_changelog" ]; then
 		manual_changelog=
 	fi
 	changelog="CHANGELOG.md"
-	changelog_markup="markdown"
+	changelog_markup="text"
 
 	# Get branch of current version/tag.
 	currentbranch=$(git branch --contains $project_version | sed 's/^..//')
