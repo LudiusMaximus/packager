@@ -2237,6 +2237,9 @@ if [ -z "$skip_zipfile" ]; then
 
 		echo "Uploading $archive_name ($game_version $file_type) to $project_site/projects/$slug"
 		resultfile="$releasedir/cf_result.json"
+
+		# echo "echo \"$_cf_payload\" | curl -sS --retry 3 --retry-delay 10 -w \"%{http_code}\" -o \"$resultfile\" -H \"x-api-token: $cf_token\" -F \"metadata=<-\" -F \"file=@$archive\" \"$project_site/api/projects/$slug/upload-file\""
+
 		result=$( echo "$_cf_payload" | curl -sS --retry 3 --retry-delay 10 \
 				-w "%{http_code}" -o "$resultfile" \
 				-H "x-api-token: $cf_token" \
@@ -2310,6 +2313,9 @@ if [ -z "$skip_zipfile" ]; then
 
 		echo "Uploading $archive_name ($game_version) to https://www.wowinterface.com/downloads/info$addonid"
 		resultfile="$releasedir/wi_result.json"
+
+		# echo "curl -sS --retry 3 --retry-delay 10 -w \"%{http_code}\" -o \"$resultfile\" -H \"x-api-token: $wowi_token\" -F \"id=$addonid\" -F \"version=$archive_version\" -F \"compatible=$game_version\" \"${_wowi_args[@]}\" -F \"updatefile=@$archive\" \"https://api.wowinterface.com/addons/update\""
+
 		result=$( curl -sS --retry 3 --retry-delay 10 \
 			  -w "%{http_code}" -o "$resultfile" \
 			  -H "x-api-token: $wowi_token" \
