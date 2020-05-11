@@ -1729,8 +1729,14 @@ if [ -n "$ludius_changelog" ]; then
 		echo "Warning! You cannot have a manual changelog and the Ludius changelog!"
 		manual_changelog=
 	fi
-	changelog="CHANGELOG.md"
+	changelog="CHANGELOG.txt"
 	changelog_markup="text"
+  
+  # This file will be deleted after successful upload.
+  # It will contain a BBCode version of the changelog for wowinterface,
+  # in which the URLs are [url="..."]...[/url] 
+  wowi_changelog="$releasedir/WOWI-$project_version-CHANGELOG.txt"
+  
 
 	# Get branch of current version/tag.
 	currentbranch=$(git branch --contains $project_version | sed 's/^..//')
@@ -1742,7 +1748,10 @@ if [ -n "$ludius_changelog" ]; then
 		latesttag=$(git tag --sort=-creatordate --merged $currentbranch | head -n 1)
 		if [ -n "$latesttag" ]; then
 			echo "Changes since last release:" >> "$pkgdir/$changelog"
+			echo "Changes since last release:" >> "$wowi_changelog"
+      
 			echo "https://github.com/$project_github_slug/compare/$latesttag...$currentbranch" >> "$pkgdir/$changelog"
+			echo "[url=\"https://github.com/$project_github_slug/compare/$latesttag...$currentbranch\"]https://github.com/$project_github_slug/compare/$latesttag...$currentbranch[/url]" >> "$wowi_changelog"
 		else
 			echo "There has never been a release of this."
 		fi
@@ -1760,25 +1769,31 @@ if [ -n "$ludius_changelog" ]; then
 
 			if [ -z "$lasttag" ]; then
 				echo "### $sometag ($(git log -1 --format=%ai $sometag)) ###" >> "$pkgdir/$changelog"
+				echo "### $sometag ($(git log -1 --format=%ai $sometag)) ###" >> "$wowi_changelog"
 				lasttag=$sometag
 			else
 
 				# Print the github diff link.
 				echo "(https://github.com/$project_github_slug/compare/$sometag...$lasttag)" >> "$pkgdir/$changelog"
+				echo "([url=\"https://github.com/$project_github_slug/compare/$sometag...$lasttag\"]https://github.com/$project_github_slug/compare/$sometag...$lasttag[/url])" >> "$wowi_changelog"
 				# Print the annotation of the tag. If the tag has no annotation
 				# the message of the last commit is printed.
 				tagmessage=$(git tag -l --format='%(contents)' $lasttag)
 				if [ -n "$tagmessage" ]; then
 					echo "$tagmessage" >> "$pkgdir/$changelog"
+					echo "$tagmessage" >> "$wowi_changelog"
 				fi
 				echo >> "$pkgdir/$changelog"
+				echo >> "$wowi_changelog"
 
 				echo "### $sometag ($(git log -1 --format=%ai $sometag)) ###" >> "$pkgdir/$changelog"
+				echo "### $sometag ($(git log -1 --format=%ai $sometag)) ###" >> "$wowi_changelog"
 				lasttag=$sometag
 			fi
 		done
 
 		echo "$(git tag -l --format='%(contents)' $lasttag)" >> "$pkgdir/$changelog"
+		echo "$(git tag -l --format='%(contents)' $lasttag)" >> "$wowi_changelog"
 	fi
 
 
