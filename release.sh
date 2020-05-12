@@ -1739,7 +1739,10 @@ if [ -n "$ludius_changelog" ]; then
   
 
 	# Get branch of current version/tag.
-	currentbranch=$(git branch --contains $project_version | sed 's/^..//')
+	# -- sed 's/^..//' removes the * of the current branch.
+	# -- If want to process a tag after which there have been commits,
+	#    we get a "(HEAD detached at ...)" line, which we do not want.
+	currentbranch=$(git branch --contains $project_version | sed 's/^..//' | grep -v detached )
 
 	# If we have not tag, this is an alpha release.
 	if [ -z "$tag" ]; then
