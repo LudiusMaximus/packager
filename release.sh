@@ -2334,12 +2334,16 @@ if [ -z "$skip_zipfile" ]; then
 
 		# echo "curl -sS --retry 3 --retry-delay 10 -w \"%{http_code}\" -o \"$resultfile\" -H \"x-api-token: $wowi_token\" -F \"id=$addonid\" -F \"version=$archive_version\" -F \"compatible=$game_version\" \"${_wowi_args[@]}\" -F \"updatefile=@$archive\" \"https://api.wowinterface.com/addons/update\""
 
+
+		# Excluded to prevent wowi from creating a classic download link.
+		# 
+		# 			  -F "compatible=$game_version" \
+    
 		result=$( curl -sS --retry 3 --retry-delay 10 \
 			  -w "%{http_code}" -o "$resultfile" \
 			  -H "x-api-token: $wowi_token" \
 			  -F "id=$addonid" \
 			  -F "version=$archive_version" \
-			  -F "compatible=$game_version" \
 			  "${_wowi_args[@]}" \
 			  -F "updatefile=@$archive" \
 			  "https://api.wowinterface.com/addons/update" ) &&
