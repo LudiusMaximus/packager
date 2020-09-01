@@ -27,36 +27,6 @@
 #
 # For more information, please refer to <http://unlicense.org/>
 
-# add some travis checks so we don't need to do it in the yaml file
-if [ -n "$TRAVIS" ]; then
-	# don't need to run the packager for pull requests
-	if [ "$TRAVIS_PULL_REQUEST" != "false" ]; then
-		echo "Not packaging pull request."
-		exit 0
-	fi
-	if [ -z "$TRAVIS_TAG" ]; then
-		# don't need to run the packager if there is a tag pending
-		TRAVIS_TAG=$( git -C "$TRAVIS_BUILD_DIR" tag --points-at )
-		if [ -n "$TRAVIS_TAG" ]; then
-			echo "Found future tag \"${TRAVIS_TAG}\", not packaging."
-			exit 0
-		fi
-		# only want to package master, classic, or a tag
-		if [ "$TRAVIS_BRANCH" != "master" ] && [ "$TRAVIS_BRANCH" != "classic" ] && [ "$TRAVIS_BRANCH" != "develop" ]; then
-			echo "Not packaging \"${TRAVIS_BRANCH}\"."
-			exit 0
-		fi
-	fi
-fi
-# actions check to prevent duplicate builds
-if [[ -n "$GITHUB_ACTIONS" && "$GITHUB_REF" == "refs/heads"* ]]; then
-	GITHUB_TAG=$( git -C "$GITHUB_WORKSPACE" tag --points-at )
-	if [ -n "$GITHUB_TAG" ]; then
-		echo "Found future tag \"${GITHUB_TAG}\", not packaging."
-		exit 0
-	fi
-fi
-
 ## USER OPTIONS
 
 # Secrets for uploading
@@ -92,13 +62,6 @@ classic=
 
 # Script return code
 exit_code=0
-
-# Classic version info for special handling
-declare -A CLASSIC_VERSIONS
-CLASSIC_VERSIONS["1.13.2"]="11302"
-CLASSIC_VERSIONS["1.13.3"]="11303"
-CLASSIC_VERSIONS["1.13.4"]="11304"
-CLASSIC_VERSIONS["1.13.5"]="11305"
 
 # Process command-line options
 usage() {
@@ -184,16 +147,18 @@ while getopts ":celLzusop:dw:r:t:g:m:" opt; do
 		# Set version (x.y.z)
 		IFS=',' read -ra V <<< "$OPTARG"
 		for i in "${V[@]}"; do
-			if [[ ! "$i" =~ ^[0-9]+\.[0-9]+\.[0-9]+[a-z]?$ ]]; then
+			if [[ ! "$i" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)[a-z]?$ ]]; then
 				echo "Invalid argument for option \"-g\" ($OPTARG)" >&2
 				usage
 				exit 1
 			fi
-			if [ -n "${CLASSIC_VERSIONS[$i]}" ]; then
+			if [[ ${BASH_REMATCH[1]} == "1" && ${BASH_REMATCH[2]} == "13" ]]; then
 				classic="true"
-				toc_version="${CLASSIC_VERSIONS[$i]}"
+				toc_version=$( printf "%d%02d%02d" ${BASH_REMATCH[1]} ${BASH_REMATCH[2]} ${BASH_REMATCH[3]} )
 			fi
 		done
+		# I should probably check to make sure people aren't mixing
+		# classic and retail on the same build (curse no like) TODO:?
 		game_version="$OPTARG"
 		;;
 	m)
@@ -242,6 +207,39 @@ if [ -z "$topdir" ]; then
 		fi
 	fi
 fi
+
+# add some travis checks so we don't need to do it in the yaml file
+if [ -n "$TRAVIS" ]; then
+	# don't need to run the packager for pull requests
+	if [ "$TRAVIS_PULL_REQUEST" != "false" ]; then
+		echo "Not packaging pull request."
+		exit 0
+	fi
+	if [ -z "$TRAVIS_TAG" ]; then
+		# don't need to run the packager if there is a tag pending
+		check_tag=$( git -C "$topdir" tag --points-at HEAD )
+		if [ -n "$check_tag" ]; then
+			echo "Found future tag \"${check_tag}\", not packaging."
+			exit 0
+		fi
+		# only want to package master, classic, or a tag
+		if [ "$TRAVIS_BRANCH" != "master" ] && [ "$TRAVIS_BRANCH" != "classic" ] && [ "$TRAVIS_BRANCH" != "develop" ]; then
+			echo "Not packaging \"${TRAVIS_BRANCH}\"."
+			exit 0
+		fi
+	fi
+fi
+# actions check to prevent duplicate builds
+if [ -n "$GITHUB_ACTIONS" ]; then
+	if [[ "$GITHUB_REF" == "refs/heads"* ]]; then
+		check_tag=$( git -C "$topdir" tag --points-at HEAD )
+		if [ -n "$check_tag" ]; then
+			echo "Found future tag \"${check_tag}\", not packaging."
+			exit 0
+		fi
+	fi
+fi
+unset check_tag
 
 # Load secrets
 if [ -f "$topdir/.env" ]; then
@@ -330,14 +328,13 @@ si_file_date_integer= # Turns into the last changed date (by UTC) of the file in
 si_file_timestamp= # Turns into the last changed date (by UTC) of the file in POSIX timestamp. e.g. 1209663296
 
 # SVN date helper function
-isgnudate=$( date --version &>/dev/null && echo "true" )
 strtotime() {
 	value="$1" # datetime string
 	format="$2" # strptime string
-	if [ -n "$isgnudate" ]; then # gnu
-		date -d "$value" +%s 2>/dev/null
-	else # bsd
+	if [[ "${OSTYPE,,}" == *"darwin"* ]]; then # bsd
 		date -j -f "$format" "$value" "+%s" 2>/dev/null
+	else # gnu
+		date -d "$value" +%s 2>/dev/null
 	fi
 }
 
@@ -351,7 +348,7 @@ set_info_git() {
 
 	# Populate filter vars.
 	si_project_hash=$( git -C "$si_repo_dir" show --no-patch --format="%H" 2>/dev/null )
-	si_project_abbreviated_hash=$( git -C "$si_repo_dir" show --no-patch --format="%h" 2>/dev/null )
+	si_project_abbreviated_hash=$( git -C "$si_repo_dir" show --no-patch --abbrev=7 --format="%h" 2>/dev/null )
 	si_project_author=$( git -C "$si_repo_dir" show --no-patch --format="%an" 2>/dev/null )
 	si_project_timestamp=$( git -C "$si_repo_dir" show --no-patch --format="%at" 2>/dev/null )
 	si_project_date_iso=$( TZ= printf "%(%Y-%m-%dT%H:%M:%SZ)T" "$si_project_timestamp" )
@@ -362,7 +359,7 @@ set_info_git() {
 	# Get the tag for the HEAD.
 	si_previous_tag=
 	si_previous_revision=
-	_si_tag=$( git -C "$si_repo_dir" describe --tags --always 2>/dev/null )
+	_si_tag=$( git -C "$si_repo_dir" describe --tags --always --abbrev=7 2>/dev/null )
 	si_tag=$( git -C "$si_repo_dir" describe --tags --always --abbrev=0 2>/dev/null )
 	# Set $si_project_version to the version number of HEAD. May be empty if there are no commits.
 	si_project_version=$si_tag
@@ -374,7 +371,7 @@ set_info_git() {
 		si_tag=
 	elif [ "$_si_tag" != "$si_tag" ]; then
 		# not on a tag
-		si_project_version=$( git -C "$si_repo_dir" describe --tags --exclude="*alpha*" 2>/dev/null )
+		si_project_version=$( git -C "$si_repo_dir" describe --tags --abbrev=7 --exclude="*alpha*" 2>/dev/null )
 		si_previous_tag=$( git -C "$si_repo_dir" describe --tags --abbrev=0 --exclude="*alpha*" 2>/dev/null )
 		si_tag=
 	else # we're on a tag, just jump back one commit
@@ -440,8 +437,8 @@ set_info_svn() {
 
 		# Populate filter vars.
 		si_project_author=$( awk '/^Last Changed Author:/ { print $0; exit }' < "$_si_svninfo" | cut -d" " -f4- )
-		_si_timestamp=$( awk '/^Last Changed Date:/ { print $4,$5,$6; exit }' < "$_si_svninfo" )
-		si_project_timestamp=$( strtotime "$_si_timestamp" "%F %T %z" )
+		_si_timestamp=$( awk '/^Last Changed Date:/ { print $4,$5; exit }' < "$_si_svninfo" )
+		si_project_timestamp=$( strtotime "$_si_timestamp" "%F %T" )
 		si_project_date_iso=$( TZ= printf "%(%Y-%m-%dT%H:%M:%SZ)T" "$si_project_timestamp" )
 		si_project_date_integer=$( TZ= printf "%(%Y%m%d%H%M%S)T" "$si_project_timestamp" )
 		# SVN repositories have no project hash.
@@ -494,7 +491,7 @@ set_info_file() {
 		_si_file=${1#si_repo_dir} # need the path relative to the checkout
 		# Populate filter vars from the last commit the file was included in.
 		si_file_hash=$( git -C "$si_repo_dir" log --max-count=1 --format="%H" "$_si_file" 2>/dev/null )
-		si_file_abbreviated_hash=$( git -C "$si_repo_dir" log --max-count=1  --format="%h"  "$_si_file" 2>/dev/null )
+		si_file_abbreviated_hash=$( git -C "$si_repo_dir" log --max-count=1 --abbrev=7 --format="%h" "$_si_file" 2>/dev/null )
 		si_file_author=$( git -C "$si_repo_dir" log --max-count=1 --format="%an" "$_si_file" 2>/dev/null )
 		si_file_timestamp=$( git -C "$si_repo_dir" log --max-count=1 --format="%at" "$_si_file" 2>/dev/null )
 		si_file_date_iso=$( TZ= printf "%(%Y-%m-%dT%H:%M:%SZ)T" "$si_file_timestamp" )
@@ -792,8 +789,9 @@ elif [ "$repository_type" = "svn" ]; then
 	done
 	IFS=$OLDIFS
 elif [ "$repository_type" = "hg" ]; then
-	_vcs_ignore=$( hg --cwd "$topdir" status --ignored --unknown --no-status | sed -e ':a' -e 'N' -e 's/\n/:/' -e 'ta' )
+	_vcs_ignore=$( hg --cwd "$topdir" status --ignored --unknown --no-status --print0 | tr '\0' ':' )
 	if [ -n "$_vcs_ignore" ]; then
+		_vcs_ignore=${_vcs_ignore:0:-1}
 		if [ -z "$ignore" ]; then
 			ignore="$_vcs_ignore"
 		else
@@ -832,13 +830,12 @@ fi
 toc_file=$( sed -e '1s/^\xEF\xBB\xBF//' -e $'s/\r//g' "$topdir/$tocfile" ) # go away bom, crlf
 if [ -z "$toc_version" ]; then
 	toc_version=$( echo "$toc_file" | awk '/^## Interface:/ { print $NF }' )
-	for v in "${!CLASSIC_VERSIONS[@]}"; do
-		if [ "$toc_version" = "${CLASSIC_VERSIONS[$v]}" ]; then
-			classic="true"
-			game_version="$v"
-			break
-		fi
-	done
+	if [[ "$toc_version" == "113"* ]]; then
+		classic="true"
+	fi
+fi
+if [ -z "$game_version" ]; then
+	game_version="${toc_version:0:1}.$( printf "%d" ${toc_version:1:2} ).$( printf "%d" ${toc_version:3:2} )"
 fi
 
 # Get the title of the project for using in the changelog.
@@ -868,6 +865,7 @@ fi
 	[ -n "$classic" ] && retail="non-retail" || retail="retail"
 	[ -z "$alpha" ] && alpha="non-alpha" || alpha="alpha"
 	echo "Build type: ${retail} ${alpha} non-debug${nolib:+ nolib}"
+	echo "Game version: ${game_version}"
 	echo
 )
 if [[ "$slug" =~ ^[0-9]+$ ]]; then
@@ -930,7 +928,7 @@ set_localization_url() {
 	if [ -n "$slug" ] && [ -n "$cf_token" ] && [ -n "$project_site" ]; then
 		localization_url="${project_site}/api/projects/$slug/localization/export"
 	fi
-	if [ -z "$localization_url" ] && grep -rq --include="*.lua" "@localization" "$topdir"; then
+	if [ -z "$localization_url" ] && grep -rq --max-count=1 --include="*.lua" "@localization" "$topdir"; then
 		echo "Skipping localization! Missing CurseForge API token and/or project id is invalid."
 		echo
 	fi
@@ -1469,7 +1467,7 @@ checkout_external() {
 		git -C "$_cqe_checkout_dir" submodule -q update --init --recursive || return 1
 
 		set_info_git "$_cqe_checkout_dir"
-		echo "Checked out $( git -C "$_cqe_checkout_dir" describe --always --tags --long )" #$si_project_abbreviated_hash
+		echo "Checked out $( git -C "$_cqe_checkout_dir" describe --always --tags --abbrev=7 --long )" #$si_project_abbreviated_hash
 	elif [ "$_external_type" = "svn" ]; then
 		if [[ $external_uri == *"/trunk" ]]; then
 			_cqe_svn_trunk_url=$_external_uri
