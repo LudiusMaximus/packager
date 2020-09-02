@@ -49,6 +49,7 @@ skip_zipfile=
 skip_upload=
 skip_cf_upload=
 pkgmeta_file=
+simulate_upload=
 
 # Game versions for uploading
 game_version=
@@ -68,6 +69,7 @@ usage() {
 	echo "Usage: release.sh [-cdelLosuz] [-t topdir] [-r releasedir] [-p curse-id] [-w wowi-id] [-g game-version] [-m pkgmeta.yml]" >&2
 	echo "  -c               Skip copying files into the package directory." >&2
 	echo "  -d               Skip uploading." >&2
+	echo "  -f               Fake/simulate uploading." >&2
 	echo "  -e               Skip checkout of external repositories." >&2
 	echo "  -l               Skip @localization@ keyword replacement." >&2
 	echo "  -L               Only do @localization@ keyword replacement (skip upload to CurseForge)." >&2
@@ -84,7 +86,7 @@ usage() {
 }
 
 OPTIND=1
-while getopts ":celLzusop:dw:r:t:g:m:" opt; do
+while getopts ":celLfzusop:dw:r:t:g:m:" opt; do
 	case $opt in
 	c)
 		# Skip copying files into the package directory.
@@ -106,6 +108,10 @@ while getopts ":celLzusop:dw:r:t:g:m:" opt; do
 	d)
 		# Skip uploading.
 		skip_upload="true"
+		;;
+	f)
+		# Simulate uploading.
+		simulate_upload="true"
 		;;
 	o)
 		# Skip deleting any previous package directory.
@@ -2271,39 +2277,45 @@ if [ -z "$skip_zipfile" ]; then
 		echo "Uploading $archive_name ($game_version $file_type) to $project_site/projects/$slug"
 		resultfile="$releasedir/cf_result.json"
 
-		# echo "echo \"$_cf_payload\" | curl -sS --retry 3 --retry-delay 10 -w \"%{http_code}\" -o \"$resultfile\" -H \"x-api-token: $cf_token\" -F \"metadata=<-\" -F \"file=@$archive\" \"$project_site/api/projects/$slug/upload-file\""
+		if [ -n "$simulate_upload" ]; then
+			echo
+			echo "Simulating upload to curse:"
+			echo "echo \"$_cf_payload\" | curl -sS --retry 3 --retry-delay 10 -w \"%{http_code}\" -o \"$resultfile\" -H \"x-api-token: $cf_token\" -F \"metadata=<-\" -F \"file=@$archive\" \"$project_site/api/projects/$slug/upload-file\""
 
-		result=$( echo "$_cf_payload" | curl -sS --retry 3 --retry-delay 10 \
-				-w "%{http_code}" -o "$resultfile" \
-				-H "x-api-token: $cf_token" \
-				-F "metadata=<-" \
-				-F "file=@$archive" \
-				"$project_site/api/projects/$slug/upload-file" ) &&
-		{
-			case $result in
-				200) echo "Success!" ;;
-				302)
-					echo "Error! ($result)"
-					# don't need to ouput the redirect page
-					exit_code=1
-					;;
-				404)
-					echo "Error! No project for \"$slug\" found."
-					exit_code=1
-					;;
-				*)
-					echo "Error! ($result)"
-					if [ -s "$resultfile" ]; then
-						echo "$(<"$resultfile")"
-					fi
-					exit_code=1
-					;;
-			esac
-		} || {
-			exit_code=1
-		}
+		else
+			result=$( echo "$_cf_payload" | curl -sS --retry 3 --retry-delay 10 \
+					-w "%{http_code}" -o "$resultfile" \
+					-H "x-api-token: $cf_token" \
+					-F "metadata=<-" \
+					-F "file=@$archive" \
+					"$project_site/api/projects/$slug/upload-file" ) &&
+			{
+				case $result in
+					200) echo "Success!" ;;
+					302)
+						echo "Error! ($result)"
+						# don't need to ouput the redirect page
+						exit_code=1
+						;;
+					404)
+						echo "Error! No project for \"$slug\" found."
+						exit_code=1
+						;;
+					*)
+						echo "Error! ($result)"
+						if [ -s "$resultfile" ]; then
+							echo "$(<"$resultfile")"
+						fi
+						exit_code=1
+						;;
+				esac
+			} || {
+				exit_code=1
+			}
+		fi
+    
 		echo
-
+		
 		rm -f "$resultfile" 2>/dev/null
 	fi
 
@@ -2347,46 +2359,52 @@ if [ -z "$skip_zipfile" ]; then
 		echo "Uploading $archive_name ($game_version) to https://www.wowinterface.com/downloads/info$addonid"
 		resultfile="$releasedir/wi_result.json"
 
-		# echo "curl -sS --retry 3 --retry-delay 10 -w \"%{http_code}\" -o \"$resultfile\" -H \"x-api-token: $wowi_token\" -F \"id=$addonid\" -F \"version=$archive_version\" -F \"compatible=$game_version\" \"${_wowi_args[@]}\" -F \"updatefile=@$archive\" \"https://api.wowinterface.com/addons/update\""
 
+ 		if [ -n "$simulate_upload" ]; then
+			echo
+			echo "Simulating upload to wowinterface:"
+			echo "curl -sS --retry 3 --retry-delay 10 -w \"%{http_code}\" -o \"$resultfile\" -H \"x-api-token: $wowi_token\" -F \"id=$addonid\" -F \"version=$archive_version\" -F \"compatible=$game_version\" \"${_wowi_args[@]}\" -F \"updatefile=@$archive\" \"https://api.wowinterface.com/addons/update\""
+		else
 
-		# Excluded to prevent wowi from creating a classic download link.
-		# 
-		# 			  -F "compatible=$game_version" \
-    
-		result=$( curl -sS --retry 3 --retry-delay 10 \
-			  -w "%{http_code}" -o "$resultfile" \
-			  -H "x-api-token: $wowi_token" \
-			  -F "id=$addonid" \
-			  -F "version=$archive_version" \
-			  "${_wowi_args[@]}" \
-			  -F "updatefile=@$archive" \
-			  "https://api.wowinterface.com/addons/update" ) &&
-		{
-			case $result in
-				202)
-					echo "Success!"
-					rm -f "$wowi_changelog" 2>/dev/null
-					;;
-				401)
-					echo "Error! No addon for id \"$addonid\" found or you do not have permission to upload files."
-					exit_code=1
-					;;
-				403)
-					echo "Error! Incorrect api key or you do not have permission to upload files."
-					exit_code=1
-					;;
-				*)
-					echo "Error! ($result)"
-					if [ -s "$resultfile" ]; then
-						echo "$(<"$resultfile")"
-					fi
-					exit_code=1
-					;;
-			esac
-		} || {
-			exit_code=1
-		}
+			# Excluded to prevent wowi from creating a classic download link.
+			# 
+			# 				-F "compatible=$game_version" \
+			
+			result=$( curl -sS --retry 3 --retry-delay 10 \
+					-w "%{http_code}" -o "$resultfile" \
+					-H "x-api-token: $wowi_token" \
+					-F "id=$addonid" \
+					-F "version=$archive_version" \
+					"${_wowi_args[@]}" \
+					-F "updatefile=@$archive" \
+					"https://api.wowinterface.com/addons/update" ) &&
+			{
+				case $result in
+					202)
+						echo "Success!"
+						rm -f "$wowi_changelog" 2>/dev/null
+						;;
+					401)
+						echo "Error! No addon for id \"$addonid\" found or you do not have permission to upload files."
+						exit_code=1
+						;;
+					403)
+						echo "Error! Incorrect api key or you do not have permission to upload files."
+						exit_code=1
+						;;
+					*)
+						echo "Error! ($result)"
+						if [ -s "$resultfile" ]; then
+							echo "$(<"$resultfile")"
+						fi
+						exit_code=1
+						;;
+				esac
+			} || {
+				exit_code=1
+			}
+		fi
+		
 		echo
 
 		rm -f "$resultfile" 2>/dev/null
