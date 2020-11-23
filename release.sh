@@ -2363,18 +2363,23 @@ if [ -z "$skip_zipfile" ]; then
  		if [ -n "$simulate_upload" ]; then
 			echo
 			echo "Simulating upload to wowinterface:"
-			echo "curl -sS --retry 3 --retry-delay 10 -w \"%{http_code}\" -o \"$resultfile\" -H \"x-api-token: $wowi_token\" -F \"id=$addonid\" -F \"version=$archive_version\" -F \"compatible=$game_version\" \"${_wowi_args[@]}\" -F \"updatefile=@$archive\" \"https://api.wowinterface.com/addons/update\""
+      
+			## Not using compatible for classic addons, such that wowi does not create a classic download link.
+			echo "curl -sS --retry 3 --retry-delay 10 -w \"%{http_code}\" -o \"$resultfile\" -H \"x-api-token: $wowi_token\" -F \"id=$addonid\" -F \"version=$archive_version\" $([[ $retail=="retail" ]] && echo -F \"compatible=$game_version\") \"${_wowi_args[@]}\" -F \"updatefile=@$archive\" \"https://api.wowinterface.com/addons/update\""
 		else
 
-			# Excluded to prevent wowi from creating a classic download link.
-			# 
-			# 				-F "compatible=$game_version" \
-			
+      ## Not using compatible for classic addons, such that wowi does not create a classic download link.
+      conditionalArgs=()
+      if [[ $retail=="retail" ]]; then    # Note: the spaces around == are required
+          conditionalArgs+=(-F "compatible=$game_version")
+      fi
+
 			result=$( curl -sS --retry 3 --retry-delay 10 \
 					-w "%{http_code}" -o "$resultfile" \
 					-H "x-api-token: $wowi_token" \
 					-F "id=$addonid" \
 					-F "version=$archive_version" \
+					"${conditionalArgs[@]}" \
 					"${_wowi_args[@]}" \
 					-F "updatefile=@$archive" \
 					"https://api.wowinterface.com/addons/update" ) &&
