@@ -49,6 +49,7 @@ skip_zipfile=
 skip_upload=
 skip_cf_upload=
 pkgmeta_file=
+simulate_upload=
 
 # Game versions for uploading
 game_version=
@@ -68,6 +69,7 @@ usage() {
 	echo "Usage: release.sh [-cdelLosuz] [-t topdir] [-r releasedir] [-p curse-id] [-w wowi-id] [-g game-version] [-m pkgmeta.yml]" >&2
 	echo "  -c               Skip copying files into the package directory." >&2
 	echo "  -d               Skip uploading." >&2
+	echo "  -f               Fake/simulate uploading." >&2
 	echo "  -e               Skip checkout of external repositories." >&2
 	echo "  -l               Skip @localization@ keyword replacement." >&2
 	echo "  -L               Only do @localization@ keyword replacement (skip upload to CurseForge)." >&2
@@ -84,7 +86,7 @@ usage() {
 }
 
 OPTIND=1
-while getopts ":celLzusop:dw:r:t:g:m:" opt; do
+while getopts ":celLfzusop:dw:r:t:g:m:" opt; do
 	case $opt in
 	c)
 		# Skip copying files into the package directory.
@@ -106,6 +108,10 @@ while getopts ":celLzusop:dw:r:t:g:m:" opt; do
 	d)
 		# Skip uploading.
 		skip_upload="true"
+		;;
+	f)
+		# Simulate uploading.
+		simulate_upload="true"
 		;;
 	o)
 		# Skip deleting any previous package directory.
@@ -625,6 +631,7 @@ fi
 
 # Variables set via .pkgmeta.
 package=
+ludius_changelog=
 manual_changelog=
 changelog=
 changelog_markup="text"
@@ -717,6 +724,11 @@ if [ -f "$pkgmeta_file" ]; then
 			manual-changelog)
 				changelog=$yaml_value
 				manual_changelog="true"
+				;;
+			ludius-changelog)
+				if [ "$yaml_value" = "yes" ]; then
+					ludius_changelog="true"
+				fi
 				;;
 			package-as)
 				package=$yaml_value
@@ -1792,9 +1804,92 @@ if [ -z "$project" ]; then
 	project="$package"
 fi
 
+
+if [ -n "$ludius_changelog" ]; then
+
+	if [ -n "$manual_changelog" ]; then
+		echo "Warning! You cannot have a manual changelog and the Ludius changelog!"
+		manual_changelog=
+	fi
+	changelog="CHANGELOG.txt"
+	changelog_markup="text"
+  
+  # This file will be deleted after successful upload.
+  # It will contain a BBCode version of the changelog for wowinterface,
+  # in which the URLs are [url="..."]...[/url] 
+  wowi_changelog="$releasedir/WOWI-$project_version-CHANGELOG.txt"
+  
+
+	# Get branch of current version/tag.
+	# -- sed 's/^..//' removes the * of the current branch.
+	# -- If want to process a tag after which there have been commits,
+	#    we get a "(HEAD detached at ...)" line, which we do not want.
+	currentbranch=$(git branch --contains $project_version | sed 's/^..//' | grep -v detached )
+
+	# If we have not tag, this is an alpha release.
+	if [ -z "$tag" ]; then
+
+		# Show only differences between latest tag and this alpha build.
+		latesttag=$(git tag --sort=-creatordate --merged $currentbranch | head -n 1)
+		if [ -n "$latesttag" ]; then
+			echo "Changes since last release:" >> "$pkgdir/$changelog"
+			echo "Changes since last release:" >> "$wowi_changelog"
+      
+			echo "https://github.com/$project_github_slug/compare/$latesttag...$currentbranch" >> "$pkgdir/$changelog"
+			echo "[url=\"https://github.com/$project_github_slug/compare/$latesttag...$currentbranch\"]https://github.com/$project_github_slug/compare/$latesttag...$currentbranch[/url]" >> "$wowi_changelog"
+		else
+			echo "There has never been a release of this."
+		fi
+
+	else
+
+		# Get all tags of this branch ordered from newest to oldest.
+		alltags=$(git tag --sort=-creatordate --merged $currentbranch)
+
+		lasttag=
+		for sometag in $alltags
+		do
+
+			# TODO: Only use tags matching our formating!
+
+			if [ -z "$lasttag" ]; then
+				echo "### $sometag ($(git log -1 --format=%ai $sometag)) ###" >> "$pkgdir/$changelog"
+				echo "### $sometag ($(git log -1 --format=%ai $sometag)) ###" >> "$wowi_changelog"
+				lasttag=$sometag
+			else
+
+				# Print the github diff link.
+				echo "(https://github.com/$project_github_slug/compare/$sometag...$lasttag)" >> "$pkgdir/$changelog"
+				echo "([url=\"https://github.com/$project_github_slug/compare/$sometag...$lasttag\"]https://github.com/$project_github_slug/compare/$sometag...$lasttag[/url])" >> "$wowi_changelog"
+				# Print the annotation of the tag. If the tag has no annotation
+				# the message of the last commit is printed.
+				tagmessage=$(git tag -l --format='%(contents)' $lasttag)
+				if [ -n "$tagmessage" ]; then
+					echo "$tagmessage" >> "$pkgdir/$changelog"
+					echo "$tagmessage" >> "$wowi_changelog"
+				fi
+				echo >> "$pkgdir/$changelog"
+				echo >> "$wowi_changelog"
+
+				echo "### $sometag ($(git log -1 --format=%ai $sometag)) ###" >> "$pkgdir/$changelog"
+				echo "### $sometag ($(git log -1 --format=%ai $sometag)) ###" >> "$wowi_changelog"
+				lasttag=$sometag
+			fi
+		done
+
+		echo "$(git tag -l --format='%(contents)' $lasttag)" >> "$pkgdir/$changelog"
+		echo "$(git tag -l --format='%(contents)' $lasttag)" >> "$wowi_changelog"
+	fi
+
+
+	echo
+	echo "$(<"$pkgdir/$changelog")"
+	echo
+
+
 # Create a changelog in the package directory if the source directory does
 # not contain a manual changelog.
-if [ -n "$manual_changelog" ] && [ -f "$topdir/$changelog" ]; then
+elif [ -n "$manual_changelog" ] && [ -f "$topdir/$changelog" ]; then
 	start_group "Using manual changelog at $changelog" "changelog"
 	head -n7 "$topdir/$changelog"
 	[ "$( wc -l < "$topdir/$changelog" )" -gt 7 ] && echo "..."
@@ -1831,6 +1926,7 @@ if [ -n "$manual_changelog" ] && [ -f "$topdir/$changelog" ]; then
 			-e "s/&#39;/'/g" \
 			| line_ending_filter > "$wowi_changelog"
 	fi
+
 else
 	if [ -n "$manual_changelog" ]; then
 		echo "Warning! Could not find a manual changelog at $topdir/$changelog"
@@ -2085,7 +2181,7 @@ if [ -z "$skip_zipfile" ]; then
 	fi
 
 	archive_version="$project_version"
-	archive_name="$archive_package_name-$project_version$classic_tag.zip"
+	archive_name="${archive_package_name}_$project_version$classic_tag.zip"
 	archive="$releasedir/$archive_name"
 
 	nolib_archive_version="$project_version-nolib"
@@ -2236,37 +2332,46 @@ if [ -z "$skip_zipfile" ]; then
 
 		echo "Uploading $archive_name ($game_version $file_type) to $project_site/projects/$slug"
 		resultfile="$releasedir/cf_result.json"
-		result=$( echo "$_cf_payload" | curl -sS --retry 3 --retry-delay 10 \
-				-w "%{http_code}" -o "$resultfile" \
-				-H "x-api-token: $cf_token" \
-				-F "metadata=<-" \
-				-F "file=@$archive" \
-				"$project_site/api/projects/$slug/upload-file" ) &&
-		{
-			case $result in
-				200) echo "Success!" ;;
-				302)
-					echo "Error! ($result)"
-					# don't need to ouput the redirect page
-					exit_code=1
-					;;
-				404)
-					echo "Error! No project for \"$slug\" found."
-					exit_code=1
-					;;
-				*)
-					echo "Error! ($result)"
-					if [ -s "$resultfile" ]; then
-						echo "$(<"$resultfile")"
-					fi
-					exit_code=1
-					;;
-			esac
-		} || {
-			exit_code=1
-		}
-		echo
 
+		if [ -n "$simulate_upload" ]; then
+			echo
+			echo "Simulating upload to curse:"
+			echo "echo \"$_cf_payload\" | curl -sS --retry 3 --retry-delay 10 -w \"%{http_code}\" -o \"$resultfile\" -H \"x-api-token: $cf_token\" -F \"metadata=<-\" -F \"file=@$archive\" \"$project_site/api/projects/$slug/upload-file\""
+
+		else
+			result=$( echo "$_cf_payload" | curl -sS --retry 3 --retry-delay 10 \
+					-w "%{http_code}" -o "$resultfile" \
+					-H "x-api-token: $cf_token" \
+					-F "metadata=<-" \
+					-F "file=@$archive" \
+					"$project_site/api/projects/$slug/upload-file" ) &&
+			{
+				case $result in
+					200) echo "Success!" ;;
+					302)
+						echo "Error! ($result)"
+						# don't need to ouput the redirect page
+						exit_code=1
+						;;
+					404)
+						echo "Error! No project for \"$slug\" found."
+						exit_code=1
+						;;
+					*)
+						echo "Error! ($result)"
+						if [ -s "$resultfile" ]; then
+							echo "$(<"$resultfile")"
+						fi
+						exit_code=1
+						;;
+				esac
+			} || {
+				exit_code=1
+			}
+		fi
+    
+		echo
+		
 		rm -f "$resultfile" 2>/dev/null
 	fi
 
@@ -2309,40 +2414,58 @@ if [ -z "$skip_zipfile" ]; then
 
 		echo "Uploading $archive_name ($game_version) to https://www.wowinterface.com/downloads/info$addonid"
 		resultfile="$releasedir/wi_result.json"
-		result=$( curl -sS --retry 3 --retry-delay 10 \
-			  -w "%{http_code}" -o "$resultfile" \
-			  -H "x-api-token: $wowi_token" \
-			  -F "id=$addonid" \
-			  -F "version=$archive_version" \
-			  -F "compatible=$game_version" \
-			  "${_wowi_args[@]}" \
-			  -F "updatefile=@$archive" \
-			  "https://api.wowinterface.com/addons/update" ) &&
-		{
-			case $result in
-				202)
-					echo "Success!"
-					rm -f "$wowi_changelog" 2>/dev/null
-					;;
-				401)
-					echo "Error! No addon for id \"$addonid\" found or you do not have permission to upload files."
-					exit_code=1
-					;;
-				403)
-					echo "Error! Incorrect api key or you do not have permission to upload files."
-					exit_code=1
-					;;
-				*)
-					echo "Error! ($result)"
-					if [ -s "$resultfile" ]; then
-						echo "$(<"$resultfile")"
-					fi
-					exit_code=1
-					;;
-			esac
-		} || {
-			exit_code=1
-		}
+
+
+ 		if [ -n "$simulate_upload" ]; then
+			echo
+			echo "Simulating upload to wowinterface:"
+      
+			## Not using compatible for classic addons, such that wowi does not create a classic download link.
+			echo "curl -sS --retry 3 --retry-delay 10 -w \"%{http_code}\" -o \"$resultfile\" -H \"x-api-token: $wowi_token\" -F \"id=$addonid\" -F \"version=$archive_version\" $([[ $retail=="retail" ]] && echo -F \"compatible=$game_version\") \"${_wowi_args[@]}\" -F \"updatefile=@$archive\" \"https://api.wowinterface.com/addons/update\""
+		else
+
+      ## Not using compatible for classic addons, such that wowi does not create a classic download link.
+      conditionalArgs=()
+      if [[ $retail=="retail" ]]; then    # Note: the spaces around == are required
+          conditionalArgs+=(-F "compatible=$game_version")
+      fi
+
+			result=$( curl -sS --retry 3 --retry-delay 10 \
+					-w "%{http_code}" -o "$resultfile" \
+					-H "x-api-token: $wowi_token" \
+					-F "id=$addonid" \
+					-F "version=$archive_version" \
+					"${conditionalArgs[@]}" \
+					"${_wowi_args[@]}" \
+					-F "updatefile=@$archive" \
+					"https://api.wowinterface.com/addons/update" ) &&
+			{
+				case $result in
+					202)
+						echo "Success!"
+						rm -f "$wowi_changelog" 2>/dev/null
+						;;
+					401)
+						echo "Error! No addon for id \"$addonid\" found or you do not have permission to upload files."
+						exit_code=1
+						;;
+					403)
+						echo "Error! Incorrect api key or you do not have permission to upload files."
+						exit_code=1
+						;;
+					*)
+						echo "Error! ($result)"
+						if [ -s "$resultfile" ]; then
+							echo "$(<"$resultfile")"
+						fi
+						exit_code=1
+						;;
+				esac
+			} || {
+				exit_code=1
+			}
+		fi
+		
 		echo
 
 		rm -f "$resultfile" 2>/dev/null
