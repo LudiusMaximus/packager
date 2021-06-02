@@ -2256,15 +2256,19 @@ if [ -z "$skip_zipfile" ]; then
 	archive_version="$project_version"
 	archive_name="$( filename_filter "$file_name" ).zip"
 	archive_label="$archive_version"
-	if [[ "${file_name}" == *"{game-type}"* ]] || [[ "$game_type" != "retail" && "${file_name}" == *"{classic}"* ]]; then
-		# append the game-type for clarity
-		archive_label="$archive_version-$game_type"
-		if [[ "$game_type" == "classic" && "${project_version,,}" == *"-classic"* ]] || [[ "$game_type" == "bcc" && "${project_version,,}" == *"-bcc"* ]]; then
-			# this is mostly for BigWigs projects that tag classic separately (eg, v10-classic)
-			# to prevent the extra -classic without changing all our workflows
-			archive_label="$archive_version"
-		fi
-	fi
+
+	# Ludius: I don't need this! I still have different branches for different game versions which have the game version in the branch name!
+	# if [[ "${file_name}" == *"{game-type}"* ]] || [[ "$game_type" != "retail" && "${file_name}" == *"{classic}"* ]]; then
+		# # append the game-type for clarity
+		# archive_label="$archive_version-$game_type"
+		# if [[ "$game_type" == "classic" && "${project_version,,}" == *"-classic"* ]] || [[ "$game_type" == "bcc" && "${project_version,,}" == *"-bcc"* ]]; then
+			# # this is mostly for BigWigs projects that tag classic separately (eg, v10-classic)
+			# # to prevent the extra -classic without changing all our workflows
+			# archive_label="$archive_version"
+		# fi
+	# fi
+ 
+  
 	archive="$releasedir/$archive_name"
 
 	if [ -n "$GITHUB_ACTIONS" ]; then
