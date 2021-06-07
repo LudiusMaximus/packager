@@ -822,7 +822,14 @@ if [ -f "$pkgmeta_file" ]; then
 				if [ "$yaml_value" = "yes" ]; then
 					ludius_changelog="true"
 				fi
-        ;;
+				;;
+			# Use this if you don't want the compatible tag included in the wowi upload.
+			# Thus, preventing a wow-classic link being created
+			no-wowi-classic-link)
+				if [ "$yaml_value" = "yes" ]; then
+					no_wowi_classic_link="true"
+				fi
+			  ;;
 			changelog-title)
 				project="$yaml_value"
 				;;
@@ -967,7 +974,17 @@ if [[ -z "$package" ]]; then
 	fi
 fi
 
+
 toc_path="$package.toc"
+
+# Ludius: If a game_type is given, use the respective TOC file to obtain the game version.
+if [[ $game_type == "classic" ]]; then
+	toc_path="$package-Classic.toc"
+elif [[ $game_type == "bcc" ]]; then
+	toc_path="$package-BCC.toc"
+fi
+# echo ${toc_path}
+
 
 # Handle having the main addon in a sub dir
 if [[ ! -f "$topdir/$toc_path" && -f "$topdir/$package/$toc_path" ]]; then
@@ -985,6 +1002,7 @@ toc_file=$(
 	[ "$file_type" != "alpha" ] && _tf_alpha="true"
 	sed -e $'1s/^\xEF\xBB\xBF//' -e $'s/\r//g' "$topdir/$toc_path" | toc_filter alpha ${_tf_alpha} | toc_filter debug true
 )
+
 root_toc_version=$( awk '/^## Interface:/ { print $NF; exit }' <<< "$toc_file" )
 toc_version="$root_toc_version"
 if [[ -n "$toc_version" && -z "$game_type" ]]; then
@@ -1892,11 +1910,13 @@ if [ -n "$ludius_changelog" ]; then
 	changelog="CHANGELOG.txt"
 	changelog_markup="text"
 
-  # This file will be deleted after successful upload.
-  # It will contain a BBCode version of the changelog for wowinterface,
-  # in which the URLs are [url="..."]...[/url]
-  wowi_changelog="$releasedir/WOWI-$project_version-CHANGELOG.txt"
+	# This file will be deleted after successful upload.
+	# It will contain a BBCode version of the changelog for wowinterface,
+	# in which the URLs are [url="..."]...[/url]
+	wowi_changelog="$releasedir/WOWI-$project_version-CHANGELOG.txt"
 
+	# Ludius: Make sure to empty the file, if it already exists!
+	echo "" > "$wowi_changelog"
 
 	# Get branch of current version/tag.
 	# -- sed 's/^..//' removes the * of the current branch.
@@ -2267,8 +2287,8 @@ if [ -z "$skip_zipfile" ]; then
 			# archive_label="$archive_version"
 		# fi
 	# fi
- 
-  
+
+
 	archive="$releasedir/$archive_name"
 
 	if [ -n "$GITHUB_ACTIONS" ]; then
@@ -2496,19 +2516,21 @@ if [ -z "$skip_zipfile" ]; then
 		resultfile="$releasedir/wi_result.json"
 
 
+		# Ludius: Just simulating.
  		if [ -n "$simulate_upload" ]; then
 			echo
 			echo "Simulating upload to wowinterface:"
 
-			## Not using compatible for classic addons, such that wowi does not create a classic download link.
-			echo "curl -sS --retry 3 --retry-delay 10 -w \"%{http_code}\" -o \"$resultfile\" -H \"x-api-token: $wowi_token\" -F \"id=$addonid\" -F \"version=$archive_version\" $([[ $retail=="retail" ]] && echo -F \"compatible=$game_version\") \"${_wowi_args[@]}\" -F \"updatefile=@$archive\" \"https://api.wowinterface.com/addons/update\""
+			## Ludius: Not using compatible for classic addons, such that wowi does not create a classic download link.
+			echo "curl -sS --retry 3 --retry-delay 10 -w \"%{http_code}\" -o \"$resultfile\" -H \"x-api-token: $wowi_token\" -F \"id=$addonid\" -F \"version=$archive_version\" $([ -z "$no_wowi_classic_link" ] && echo -F \"compatible=$game_version\") \"${_wowi_args[@]}\" -F \"updatefile=@$archive\" \"https://api.wowinterface.com/addons/update\""
+	    
 		else
 
-      ## Not using compatible for classic addons, such that wowi does not create a classic download link.
-      conditionalArgs=()
-      if [[ $retail=="retail" ]]; then    # Note: the spaces around == are required
-          conditionalArgs+=(-F "compatible=$game_version")
-      fi
+			## Ludius: Not using compatible for classic addons, such that wowi does not create a classic download link.
+			conditionalArgs=()
+			if [ -z "$no_wowi_classic_link" ]; then
+				conditionalArgs+=(-F "compatible=$game_version")
+			fi
 
 			result=$( curl -sS --retry 3 --retry-delay 10 \
 					-w "%{http_code}" -o "$resultfile" \
